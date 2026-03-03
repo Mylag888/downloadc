@@ -88,8 +88,9 @@ try {
     }
 }
 finally {
-    if (Get-Module -PSProvider -Name PSReadLine) {
+    if (Get-Module -Name PSReadLine) {
         [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory() 2>$null
     }
     Clear-History
+
 }
